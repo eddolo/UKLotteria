@@ -83,20 +83,33 @@ def handle_ml_generation_streamlit(game: str):
     If models are not found, it displays an error instead of training.
     """
     logging.info(f"Handling ML number generation for {game}.")
+    game_rules = get_game_rules(game)
+
+    # Define model paths
     main_model_path = get_model_path(game, 'main')
-    
-    # CRITICAL CHANGE: Check if the model exists. Do NOT train.
-    if not os.path.exists(main_model_path):
+    models_to_check = {'main': main_model_path}
+
+    # If it's a multi-pool game, add the bonus model to the check list
+    if 'bonus' in game_rules:
+        bonus_model_path = get_model_path(game, 'bonus')
+        models_to_check['bonus'] = bonus_model_path
+
+    # Check for the existence of all required models
+    missing_models = [pool_type for pool_type, path in models_to_check.items() if not os.path.exists(path)]
+
+    if missing_models:
+        model_types_str = " and ".join(m.capitalize() for m in missing_models)
         st.error(
-            f"ML model for '{game.upper()}' not found. Please train the model first.\n\n"
+            f"{model_types_str} ML model(s) for '{game.upper()}' not found. "
+            f"Please train the models before generating predictions.\n\n"
             f"Run this command in your terminal from the project directory:\n\n"
             f"`python train_models.py --game {game}`"
         )
-        logging.error(f"ML model for {game} not found. Aborting generation.")
+        logging.error(f"Missing ML models for {game}: {', '.join(missing_models)}. Aborting generation.")
         return None
-    
-    # If model exists, generate numbers
-    logging.info(f"Existing ML model found for {game}. Generating numbers.")
+
+    # If all models exist, generate numbers
+    logging.info(f"All required ML models found for {game}. Generating numbers.")
     with st.spinner(f"Loading trained '{game.upper()}' model(s) and generating numbers..."):
         numbers = generate_ml_numbers(game)
         if numbers is None:
