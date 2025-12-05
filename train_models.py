@@ -1,9 +1,17 @@
+import sys
+import os
+
+# Add the project root to the Python path to allow absolute imports from 'src'
+# This makes the script runnable from any directory
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # train_models.py
 """
 This script is the dedicated entry point for training all machine learning models.
 It ensures that the project is treated as a package, avoiding relative import errors.
 """
-import os
 import logging
 from src.statistical_modeler import GAME_RULES
 from src.ml_modeler import train_and_generate_ml_numbers, MODELS_DIR # CORRECTED IMPORT

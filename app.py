@@ -1,10 +1,18 @@
+import sys
+import os
+
+# Add the project root to the Python path to allow absolute imports from 'src'
+# This makes the script runnable from any directory
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # app.py
 """
 Streamlit Web App for the UK Lottery Number Generator.
 """
 
 import streamlit as st
-import os
 import pandas as pd
 import time
 import logging

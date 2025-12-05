@@ -1,3 +1,12 @@
+import sys
+import os
+
+# Add the project root to the Python path to allow absolute imports from 'src'
+# This makes the script runnable from any directory
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # lotto.py
 """
 Main Command-Line Interface (CLI) for the UK Lottery Number Generator.
@@ -8,8 +17,6 @@ This tool allows users to:
 """
 
 import argparse
-import sys
-import os
 from src.data_harvester import fetch_live_lottery_data, get_data_path
 from src.statistical_modeler import generate_statistical_numbers, GAME_RULES
 from src.ml_modeler import (
