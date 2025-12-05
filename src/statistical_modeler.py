@@ -94,7 +94,7 @@ def analyze_overdue_numbers(df: pd.DataFrame, game: str) -> pd.Series:
     
     return pd.Series(overdue_dict).sort_values(ascending=False)
 
-def generate_statistical_numbers(game: str) -> List[int]:
+def generate_statistical_numbers(game: str) -> Dict[str, List[int]]:
     """
     Generates a balanced, deterministic set of lottery numbers for a specific game
     using the merged historical and live data.
@@ -142,7 +142,8 @@ def generate_statistical_numbers(game: str) -> List[int]:
         if fill_count > 0:
             final_selection.update(filler_candidates[:fill_count])
 
-        return sorted(list(final_selection))[:num_to_generate]
+        main_numbers = sorted(list(final_selection))[:num_to_generate]
+        return {"main": main_numbers}
 
     except (FileNotFoundError, ValueError, IndexError) as e:
         logging.error(f"Could not generate statistical numbers for '{game}': {e}")
@@ -151,7 +152,8 @@ def generate_statistical_numbers(game: str) -> List[int]:
         random.seed(seed_fallback)
         max_ball_fallback = GAME_RULES.get(game, {}).get("max_main_ball", 60)
         num_gen_fallback = GAME_RULES.get(game, {}).get("main_balls", 6)
-        return sorted(random.sample(range(1, max_ball_fallback + 1), num_gen_fallback))
+        fallback_numbers = sorted(random.sample(range(1, max_ball_fallback + 1), num_gen_fallback))
+        return {"main": fallback_numbers}
 
 if __name__ == "__main__":
     print("--- Running Statistical Modeler Test for All Games ---")
