@@ -142,7 +142,8 @@ def generate_statistical_numbers(game: str) -> Dict[str, List[int]]:
         if fill_count > 0:
             final_selection.update(filler_candidates[:fill_count])
 
-        main_numbers = sorted(list(final_selection))[:num_to_generate]
+        # FIX: Explicitly cast all numbers to int before returning
+        main_numbers = sorted([int(n) for n in final_selection])[:num_to_generate]
         return {"main": main_numbers}
 
     except (FileNotFoundError, ValueError, IndexError) as e:
@@ -152,7 +153,8 @@ def generate_statistical_numbers(game: str) -> Dict[str, List[int]]:
         random.seed(seed_fallback)
         max_ball_fallback = GAME_RULES.get(game, {}).get("max_main_ball", 60)
         num_gen_fallback = GAME_RULES.get(game, {}).get("main_balls", 6)
-        fallback_numbers = sorted(random.sample(range(1, max_ball_fallback + 1), num_gen_fallback))
+        # FIX: Ensure fallback is also a list of ints
+        fallback_numbers = sorted([int(n) for n in random.sample(range(1, max_ball_fallback + 1), num_gen_fallback)])
         return {"main": fallback_numbers}
 
 if __name__ == "__main__":
