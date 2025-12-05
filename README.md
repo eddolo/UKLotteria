@@ -95,5 +95,4 @@ The web app provides a rich, interactive experience.
     *   Use the **"Update Lottery Data"** button in the sidebar to fetch the latest results.
     *   Select either the **"Statistical"** or **"Machine Learning"** method.
     *   Click **"Generate Numbers"** to see the results.
-
     *   View the historical number frequency chart to gain insights into the data.
