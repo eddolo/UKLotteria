@@ -32,15 +32,22 @@ st.set_page_config(
 )
 
 logging.info("--- Streamlit App Script START ---")
+logging.info("Attempting to import project modules...")
 
 # --- Import project modules AFTER basic config ---
-from src.data_harvester import fetch_live_lottery_data, get_data_path, get_merged_data, DATA_URLS
-from src.statistical_modeler import generate_statistical_numbers, GAME_RULES
-from src.ml_modeler import (
-    train_and_generate_ml_numbers,
-    generate_ml_numbers as generate_from_existing_model,
-    get_model_path
-)
+try:
+    from src.data_harvester import fetch_live_lottery_data, get_data_path, get_merged_data, DATA_URLS
+    from src.statistical_modeler import generate_statistical_numbers, GAME_RULES
+    from src.ml_modeler import (
+        train_and_generate_ml_numbers,
+        generate_ml_numbers as generate_from_existing_model,
+        get_model_path
+    )
+    logging.info("--- All project modules imported successfully! ---")
+except ImportError as e:
+    logging.critical(f"--- FAILED to import project modules. Error: {e} ---", exc_info=True)
+    st.error(f"A critical error occurred during application startup: {e}. Please check the logs.")
+    st.stop() # Stop execution if imports fail
 
 SUPPORTED_GAMES = list(GAME_RULES.keys())
 

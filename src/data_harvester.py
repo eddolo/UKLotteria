@@ -7,37 +7,48 @@ from typing import Dict, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.info("--- Top of src/data_harvester.py ---")
 
 # --- Game Configurations ---
 # Defines paths for the large historical dataset (base) and the file for recent draws (live)
 def get_game_configs() -> Dict[str, Dict[str, str]]:
     """Generates the game configuration dictionary with dynamic paths."""
-    base_data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-    return {
-        "lotto": {
-            "url": "https://www.national-lottery.co.uk/results/lotto/draw-history/csv",
-            "base_path": os.path.join(base_data_dir, 'lotto', 'history.csv'),
-            "live_path": os.path.join(base_data_dir, 'lotto', 'live_draws.csv')
-        },
-        "euromillions": {
-            "url": "https://www.national-lottery.co.uk/results/euromillions/draw-history/csv",
-            "base_path": os.path.join(base_data_dir, 'euromillions', 'history.csv'),
-            "live_path": os.path.join(base_data_dir, 'euromillions', 'live_draws.csv')
-        },
-        "thunderball": {
-            "url": "https://www.national-lottery.co.uk/results/thunderball/draw-history/csv",
-            "base_path": os.path.join(base_data_dir, 'thunderball', 'history.csv'),
-            "live_path": os.path.join(base_data_dir, 'thunderball', 'live_draws.csv')
-        },
-        "setforlife": {
-            "url": "https://www.national-lottery.co.uk/results/set-for-life/draw-history/csv",
-            "base_path": os.path.join(base_data_dir, 'setforlife', 'history.csv'),
-            "live_path": os.path.join(base_data_dir, 'setforlife', 'live_draws.csv')
+    logging.info("Executing get_game_configs()...")
+    try:
+        # Use absolute path from this file's location to find the /data directory
+        base_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+        logging.info(f"Resolved base data directory: {base_data_dir}")
+        configs = {
+            "lotto": {
+                "url": "https://www.national-lottery.co.uk/results/lotto/draw-history/csv",
+                "base_path": os.path.join(base_data_dir, 'lotto', 'history.csv'),
+                "live_path": os.path.join(base_data_dir, 'lotto', 'live_draws.csv')
+            },
+            "euromillions": {
+                "url": "https://www.national-lottery.co.uk/results/euromillions/draw-history/csv",
+                "base_path": os.path.join(base_data_dir, 'euromillions', 'history.csv'),
+                "live_path": os.path.join(base_data_dir, 'euromillions', 'live_draws.csv')
+            },
+            "thunderball": {
+                "url": "https://www.national-lottery.co.uk/results/thunderball/draw-history/csv",
+                "base_path": os.path.join(base_data_dir, 'thunderball', 'history.csv'),
+                "live_path": os.path.join(base_data_dir, 'thunderball', 'live_draws.csv')
+            },
+            "setforlife": {
+                "url": "https://www.national-lottery.co.uk/results/set-for-life/draw-history/csv",
+                "base_path": os.path.join(base_data_dir, 'setforlife', 'history.csv'),
+                "live_path": os.path.join(base_data_dir, 'setforlife', 'live_draws.csv')
+            }
         }
-    }
+        logging.info("get_game_configs() executed successfully.")
+        return configs
+    except Exception as e:
+        logging.error(f"CRITICAL ERROR in get_game_configs: {e}", exc_info=True)
+        raise
 
 GAME_CONFIGS = get_game_configs()
 DATA_URLS: Dict[str, str] = {game: details["url"] for game, details in GAME_CONFIGS.items()}
+logging.info("GAME_CONFIGS and DATA_URLS initialized.")
 
 def get_data_path(game: str, data_type: str = 'base') -> str:
     """
@@ -183,6 +194,8 @@ def load_and_validate_data(game: str, df: Optional[pd.DataFrame] = None) -> Opti
     logging.info(f"Data for '{game}' loaded. Total draws: {len(df)}")
     
     return df
+
+logging.info("--- Bottom of src/data_harvester.py (before __main__ check) ---")
 
 if __name__ == "__main__":
     print("--- Running Data Harvester for All Games ---")
