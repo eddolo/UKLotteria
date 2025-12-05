@@ -3,81 +3,49 @@ import pandas as pd
 import os
 import requests
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 
-# Configure logging
+# Import the new centralized game rules
+from src.game_configs import get_game_rules, GAME_RULES
+
+# --- Constants & Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logging.info("--- Top of src/data_harvester.py ---")
 
-# --- Game Configurations ---
-# Defines paths for the large historical dataset (base) and the file for recent draws (live)
-def get_game_configs() -> Dict[str, Dict[str, str]]:
-    """Generates the game configuration dictionary with dynamic paths."""
-    logging.info("Executing get_game_configs()...")
-    try:
-        # Use absolute path from this file's location to find the /data directory
-        base_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-        logging.info(f"Resolved base data directory: {base_data_dir}")
-        configs = {
-            "lotto": {
-                "url": "https://www.national-lottery.co.uk/results/lotto/draw-history/csv",
-                "base_path": os.path.join(base_data_dir, 'lotto', 'history.csv'),
-                "live_path": os.path.join(base_data_dir, 'lotto', 'live_draws.csv')
-            },
-            "euromillions": {
-                "url": "https://www.national-lottery.co.uk/results/euromillions/draw-history/csv",
-                "base_path": os.path.join(base_data_dir, 'euromillions', 'history.csv'),
-                "live_path": os.path.join(base_data_dir, 'euromillions', 'live_draws.csv')
-            },
-            "thunderball": {
-                "url": "https://www.national-lottery.co.uk/results/thunderball/draw-history/csv",
-                "base_path": os.path.join(base_data_dir, 'thunderball', 'history.csv'),
-                "live_path": os.path.join(base_data_dir, 'thunderball', 'live_draws.csv')
-            },
-            "setforlife": {
-                "url": "https://www.national-lottery.co.uk/results/set-for-life/draw-history/csv",
-                "base_path": os.path.join(base_data_dir, 'setforlife', 'history.csv'),
-                "live_path": os.path.join(base_data_dir, 'setforlife', 'live_draws.csv')
-            }
+# Defines paths and URLs for data acquisition. This is separate from game *rules*.
+def get_game_properties() -> Dict[str, Dict[str, str]]:
+    """Generates the game properties dictionary with dynamic paths."""
+    base_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+    properties = {}
+    for game_name in GAME_RULES.keys():
+        properties[game_name] = {
+            "url": f"https://www.national-lottery.co.uk/results/{game_name.replace('setforlife', 'set-for-life')}/draw-history/csv",
+            "base_path": os.path.join(base_data_dir, game_name, 'history.csv'),
+            "live_path": os.path.join(base_data_dir, game_name, 'live_draws.csv')
         }
-        logging.info("get_game_configs() executed successfully.")
-        return configs
-    except Exception as e:
-        logging.error(f"CRITICAL ERROR in get_game_configs: {e}", exc_info=True)
-        raise
+    return properties
 
-GAME_CONFIGS = get_game_configs()
-DATA_URLS: Dict[str, str] = {game: details["url"] for game, details in GAME_CONFIGS.items()}
-logging.info("GAME_CONFIGS and DATA_URLS initialized.")
+GAME_PROPERTIES = get_game_properties()
+DATA_URLS: Dict[str, str] = {game: details["url"] for game, details in GAME_PROPERTIES.items()}
+logging.info("GAME_PROPERTIES and DATA_URLS initialized for v2.0 architecture.")
 
 def get_data_path(game: str, data_type: str = 'base') -> str:
-    """
-    Returns the absolute data path for a given game and data type ('base' or 'live').
-    """
-    if game not in GAME_CONFIGS:
-        raise ValueError(f"Invalid game '{game}'. Supported games are: {list(GAME_CONFIGS.keys())}")
+    """Returns the absolute data path for a given game and data type ('base' or 'live')."""
+    if game not in GAME_PROPERTIES:
+        raise ValueError(f"Invalid game '{game}'. Supported games are: {list(GAME_PROPERTIES.keys())}")
     
     path_key = f"{data_type}_path"
-    if path_key not in GAME_CONFIGS[game]:
+    if path_key not in GAME_PROPERTIES[game]:
         raise ValueError(f"Invalid data_type '{data_type}'. Must be 'base' or 'live'.")
         
-    return GAME_CONFIGS[game][path_key]
+    return GAME_PROPERTIES[game][path_key]
 
 def fetch_live_lottery_data(game: str) -> bool:
-    """
-    Fetches the latest draw history for a specific game and saves it to a separate 'live' file.
-
-    Args:
-        game (str): The name of the lottery game.
-
-    Returns:
-        bool: True if data was successfully downloaded, False otherwise.
-    """
-    if game not in GAME_CONFIGS:
+    """Fetches the latest draw history for a specific game and saves it to a 'live' file."""
+    if game not in GAME_PROPERTIES:
         logging.error(f"Invalid game '{game}'. Cannot fetch data.")
         return False
 
-    config = GAME_CONFIGS[game]
+    config = GAME_PROPERTIES[game]
     url = config["url"]
     file_path = config["live_path"]
 
@@ -98,118 +66,123 @@ def fetch_live_lottery_data(game: str) -> bool:
         return False
 
 def get_merged_data(game: str) -> Optional[pd.DataFrame]:
-    """
-    Loads the base historical data and the live data, merges them,
-    removes duplicates, and returns a final, comprehensive DataFrame.
-
-    Args:
-        game (str): The name of the lottery game.
-
-    Returns:
-        pd.DataFrame or None: A merged DataFrame or None if data is missing.
-    """
+    """Loads, merges, and validates historical and live data for a specific game."""
     base_path = get_data_path(game, 'base')
     live_path = get_data_path(game, 'live')
 
-    # Load base historical data
-    if not os.path.exists(base_path):
-        logging.warning(f"Base historical data file not found for '{game}' at {base_path}. Proceeding with live data only.")
-        base_df = pd.DataFrame()
-    else:
-        try:
+    try:
+        if os.path.exists(base_path):
             base_df = pd.read_csv(base_path)
-            # Standardize date format for merging
-            base_df['Draw Date'] = pd.to_datetime(base_df.iloc[:, 0]).dt.strftime('%d-%b-%Y')
-        except Exception as e:
-            logging.error(f"Could not read or process base file {base_path}: {e}")
-            return None
+            logging.info(f"Loaded {len(base_df)} records from base file: {base_path}")
+        else:
+            base_df = pd.DataFrame()
+            logging.warning(f"Base file not found at {base_path}. Proceeding with live data only.")
 
-    # Load live data
-    if not os.path.exists(live_path):
-        logging.warning(f"Live data file not found for '{game}' at {live_path}. Returning base data only.")
-        return load_and_validate_data(game, df=base_df)
-    else:
-        try:
+        if os.path.exists(live_path):
             live_df = pd.read_csv(live_path)
-            # Standardize date format for merging
-            live_df['Draw Date'] = pd.to_datetime(live_df.iloc[:, 0]).dt.strftime('%d-%b-%Y')
-        except Exception as e:
-            logging.error(f"Could not read or process live file {live_path}: {e}")
-            return load_and_validate_data(game, df=base_df)
-    
-    # Merge and de-duplicate
-    logging.info(f"Merging {len(base_df)} historical records with {len(live_df)} live records for '{game}'.")
+            logging.info(f"Loaded {len(live_df)} records from live file: {live_path}")
+        else:
+            live_df = pd.DataFrame()
+            logging.warning(f"Live file not found at {live_path}. Proceeding with base data only.")
+
+    except Exception as e:
+        logging.error(f"CRITICAL: Failed to read CSV data for '{game}'. Error: {e}")
+        return None
+
+    if base_df.empty and live_df.empty:
+        logging.error(f"No data available for '{game}' from any source.")
+        return None
+        
     combined_df = pd.concat([base_df, live_df], ignore_index=True)
     
-    # Identify a consistent set of columns for deduplication
-    # We use the date and first 6 numbers as a unique key for a draw.
-    subset_cols = [col for col in combined_df.columns if col.startswith('Ball') or col in ['N1', 'N2', 'N3', 'N4', 'N5', 'N6']]
-    subset_cols = ['Draw Date'] + subset_cols[:6]
+    # Standardize column names before processing
+    combined_df = standardize_column_names(combined_df)
     
-    # Ensure all subset columns exist before trying to deduplicate
-    valid_subset_cols = [col for col in subset_cols if col in combined_df.columns]
+    # Use Draw Date and Main numbers for deduplication
+    game_rules = get_game_rules(game)
+    main_cols = game_rules['main']['columns']
     
-    if len(valid_subset_cols) < 7:
-        logging.warning("Could not find enough columns to reliably deduplicate. Skipping.")
+    # The first column is always the date column in the raw CSV
+    date_col_original_name = combined_df.columns[0]
+    
+    # Ensure all required columns exist before trying to deduplicate
+    dedupe_cols = [date_col_original_name] + main_cols
+    valid_dedupe_cols = [col for col in dedupe_cols if col in combined_df.columns]
+
+    if len(valid_dedupe_cols) < game_rules['main']['count'] + 1:
+        logging.warning(f"Could not find enough columns for reliable deduplication for '{game}'. Skipping.")
     else:
         initial_rows = len(combined_df)
-        combined_df.drop_duplicates(subset=valid_subset_cols, keep='last', inplace=True)
+        combined_df.drop_duplicates(subset=valid_dedupe_cols, keep='last', inplace=True)
         final_rows = len(combined_df)
-        logging.info(f"Removed {initial_rows - final_rows} duplicate records.")
+        logging.info(f"Removed {initial_rows - final_rows} duplicate records for '{game}'.")
 
-    # Sort by date in descending order
-    date_col = combined_df.columns[0]
-    combined_df[date_col] = pd.to_datetime(combined_df[date_col])
-    combined_df = combined_df.sort_values(by=date_col, ascending=False).reset_index(drop=True)
+    # Sort by date
+    combined_df[date_col_original_name] = pd.to_datetime(combined_df[date_col_original_name])
+    combined_df = combined_df.sort_values(by=date_col_original_name, ascending=False).reset_index(drop=True)
 
     return load_and_validate_data(game, df=combined_df)
 
-
-def load_and_validate_data(game: str, df: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
-    """
-    Validates a given DataFrame or loads one from the base path.
-
-    Args:
-        game (str): The name of the lottery game.
-        df (pd.DataFrame, optional): A DataFrame to validate. If None, loads from disk.
-
-    Returns:
-        pd.DataFrame or None: A validated DataFrame or None if invalid.
-    """
-    if df is None:
-        file_path = get_data_path(game, 'base')
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Data file for '{game}' not found at: {file_path}.")
-        try:
-            df = pd.read_csv(file_path, header=0)
-        except Exception as e:
-            raise ValueError(f"Failed to read or parse the CSV file for '{game}': {e}")
+def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Standardizes DataFrame columns to match the `GAME_RULES` spec."""
+    # A mapping from potential CSV headers to our standard internal names.
+    # This is crucial because the Lottery operator changes headers occasionally.
+    standard_map = {
+        'Draw Date': 'Draw_Date',
+        'Ball 1': 'Ball_1', 'Ball 2': 'Ball_2', 'Ball 3': 'Ball_3',
+        'Ball 4': 'Ball_4', 'Ball 5': 'Ball_5', 'Ball 6': 'Ball_6',
+        'Lucky Star 1': 'Lucky_Star_1', 'Lucky Star 2': 'Lucky_Star_2',
+        'Thunderball': 'Thunderball',
+        'Life Ball': 'Life_Ball',
+        'Bonus Ball': 'Bonus_Ball' # For Lotto
+    }
     
-    if df.empty:
-        logging.error(f"Data for '{game}' is empty.")
-        return None
-
-    # Clean up column names
-    df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('-', '_')
-    logging.info(f"Data for '{game}' loaded. Total draws: {len(df)}")
-    
+    # Apply cleaning: strip spaces and replace known variations
+    new_columns = {}
+    for col in df.columns:
+        clean_col = col.strip()
+        new_columns[col] = standard_map.get(clean_col, clean_col.replace(' ', '_'))
+        
+    df.rename(columns=new_columns, inplace=True)
     return df
 
-logging.info("--- Bottom of src/data_harvester.py (before __main__ check) ---")
+def load_and_validate_data(game: str, df: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
+    """Validates that a DataFrame contains all required columns for the specified game."""
+    if df is None:
+        logging.error(f"No DataFrame provided for validation for game '{game}'.")
+        return None
+    
+    if df.empty:
+        logging.warning(f"Data for '{game}' is empty, no validation possible.")
+        return df
+
+    game_rules = get_game_rules(game)
+    required_cols = game_rules['main']['columns'] + game_rules['bonus']['columns']
+    
+    # The first column is always expected to be the date
+    required_cols.insert(0, df.columns[0]) 
+
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    
+    if missing_cols:
+        logging.error(f"VALIDATION FAILED for '{game}': Missing required columns: {missing_cols}. Available columns: {list(df.columns)}")
+        return None
+
+    logging.info(f"VALIDATION SUCCESS for '{game}': All required columns found. Total draws: {len(df)}")
+    return df
 
 if __name__ == "__main__":
-    print("--- Running Data Harvester for All Games ---")
+    print("--- Running Data Harvester (v2.0) for All Games ---")
     
-    games_to_update = list(GAME_CONFIGS.keys())
-    for game_name in games_to_update:
+    for game_name in GAME_RULES.keys():
         print(f"\n--- Processing: {game_name.upper()} ---")
         fetch_live_lottery_data(game_name)
         
-    print("\n--- Testing Merged Data Pipeline ---")
-    for game_name in games_to_update:
+    print("\n--- Testing Merged Data Pipeline (v2.0) ---")
+    for game_name in GAME_RULES.keys():
         print(f"\n--- Merging Data for: {game_name.upper()} ---")
         merged_data = get_merged_data(game_name)
         if merged_data is not None:
-            print(f"--- Validation Complete for {game_name.upper()}: Merged data appears valid. Total records: {len(merged_data)} ---")
+            print(f"--- Pipeline Test Complete for {game_name.upper()}: Merged data appears valid. Total records: {len(merged_data)} ---")
         else:
-            print(f"--- Merging Failed for {game_name.upper()}. Please check logs. ---")
+            print(f"--- Pipeline Test FAILED for {game_name.upper()}. Please check logs. ---")
