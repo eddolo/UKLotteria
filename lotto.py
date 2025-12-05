@@ -10,7 +10,7 @@ This tool allows users to:
 import argparse
 import sys
 import os
-from src.data_harvester import fetch_and_save_lottery_data, get_data_path
+from src.data_harvester import fetch_live_lottery_data, get_data_path
 from src.statistical_modeler import generate_statistical_numbers, GAME_RULES
 from src.ml_modeler import (
     train_and_generate_ml_numbers,
@@ -24,23 +24,32 @@ def ensure_data_exists(game: str):
     Checks for the data file for a given game and downloads it if missing.
     Exits the script if the download fails.
     """
-    data_path = get_data_path(game)
-    if not os.path.exists(data_path):
-        print(f"Data file for '{game}' not found at '{data_path}'.")
-        print("Attempting to download it automatically...")
-        if not fetch_and_save_lottery_data(game):
-            print(f"\nAutomatic data download for '{game}' failed. Please check your connection.")
-            sys.exit(1)
-        print(f"Data for '{game}' downloaded successfully.\n")
+    # We trigger the download process if the main historical file is missing,
+    # as the live file is always fetched.
+    historical_data_path = get_data_path(game, data_type='base') # CORRECTED KEYWORD ARGUMENT
+    
+    if not os.path.exists(historical_data_path):
+        print(f"Historical data for '{game}' not found. Attempting to download live data...")
+        if not fetch_live_lottery_data(game):
+            print(f"\nAutomatic data download for '{game}' failed. The application may not work correctly without data.")
+        else:
+            print(f"Live data for '{game}' downloaded successfully.\n")
+
 
 def handle_statistical_generation(game: str):
     """Handles logic for statistical number generation."""
     print(f"Executing: Number Generation for '{game.upper()}' with Method 'statistical'")
     ensure_data_exists(game)
     numbers = generate_statistical_numbers(game)
-    print("\n--- Statistical Model Generated Numbers ---")
-    print(f"Prediction for {game.upper()}: {numbers}")
-    print("-----------------------------------------")
+    if numbers:
+        print("\n--- Statistical Model Generated Numbers ---")
+        print(f"Prediction for {game.upper()}: {numbers['main']}")
+        if 'special' in numbers and numbers['special']:
+            print(f"Special Numbers: {numbers['special']}")
+        print("-----------------------------------------")
+    else:
+        print(f"Could not generate statistical numbers for '{game}'.")
+
 
 def handle_ml_generation(game: str):
     """Handles logic for ML number generation."""
@@ -50,24 +59,23 @@ def handle_ml_generation(game: str):
     model_path = get_model_path(game)
     scaler_path = get_scaler_path(game)
 
-    # If model doesn't exist, train it first
+    # If model doesn't exist, recommend training it first
     if not os.path.exists(model_path) or not os.path.exists(scaler_path):
-        print(f"\nModel for '{game}' not found. A one-time training process will now begin.")
-        print("This may take a few minutes...")
-        numbers = train_and_generate_ml_numbers(game, epochs=50) # First time training
-        if numbers is None:
-            print(f"\nML model training and generation failed for '{game}'.")
-            sys.exit(1)
+        print(f"\nModel for '{game}' not found. Please run `python train_models.py` first.")
+        print("This is a one-time process to build the necessary prediction models.")
+        sys.exit(1)
     else:
         # Model exists, just generate numbers
         print(f"Found existing model for '{game}'. Generating numbers...")
         numbers = generate_from_existing_model(game)
         if numbers is None:
-            print(f"\nML number generation failed for '{game}'.")
+            print(f"\nML number generation failed for '{game}'. This could be due to missing data or a model issue.")
             sys.exit(1)
 
     print("\n--- Machine Learning (LSTM) Generated Numbers ---")
-    print(f"Prediction for {game.upper()}: {numbers}")
+    print(f"Prediction for {game.upper()}: {numbers['main']}")
+    if 'special' in numbers and numbers['special']:
+            print(f"Special Numbers: {numbers['special']}")
     print("---------------------------------------------")
 
 def main():
@@ -82,7 +90,7 @@ def main():
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
 
     # Subparser for 'update' command
-    parser_update = subparsers.add_parser('update', help='Force an update of the historical lottery data.')
+    parser_update = subparsers.add_parser('update', help='Force an update of the live lottery data.')
     parser_update.add_argument(
         '--game',
         type=str,
@@ -112,15 +120,12 @@ def main():
         )
     )
 
-    if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
-
+    # Simplified argument parsing for the new structure
     args = parser.parse_args()
 
     if args.command == 'update':
         print(f"Executing: Force Data Update for '{args.game.upper()}'")
-        if not fetch_and_save_lottery_data(args.game):
+        if not fetch_live_lottery_data(args.game):
             print("Data update failed. Please check your connection and try again.")
             sys.exit(1)
         print("Data updated successfully.")
@@ -132,4 +137,11 @@ def main():
             handle_ml_generation(args.game)
 
 if __name__ == "__main__":
+    # A simple check to guide users if they run the script with no arguments
+    if len(sys.argv) == 1:
+        # Instead of full help, give a hint about the new commands
+        print("Usage: python lotto.py [command] [options]")
+        print("Commands: 'generate', 'update'")
+        print("Example: python lotto.py generate --game lotto --method ml")
+        sys.exit(1)
     main()

@@ -6,6 +6,7 @@ It defines, trains, and uses an LSTM model to predict lottery numbers for variou
 
 import os
 import logging
+import argparse
 import numpy as np
 import pandas as pd
 import joblib
@@ -16,8 +17,6 @@ import tensorflow as tf
 import random
 
 # --- Deterministic Seeding ---
-# This is critical for ensuring that for the same input data, the model
-# always produces the same output.
 SEED = 42
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 os.environ['PYTHONHASHSEED'] = str(SEED)
@@ -26,7 +25,7 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
 # Import game-aware components from other modules
-from .data_harvester import load_and_validate_data, get_data_path
+from .data_harvester import get_merged_data
 from .statistical_modeler import GAME_RULES
 
 # --- Constants ---
@@ -35,7 +34,6 @@ SEQUENCE_LENGTH = 10  # Number of past draws to use for predicting the next one
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-# Suppress TensorFlow informational messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 tf.get_logger().setLevel('ERROR')
 
@@ -51,21 +49,28 @@ def get_scaler_path(game: str) -> str:
 # --- Core ML Functions ---
 def load_and_preprocess_data(game: str):
     """
-    Loads and preprocesses data for a specific game.
+    Loads and preprocesses data for a specific game using the merged data pipeline.
     """
     try:
         rules = GAME_RULES[game]
         num_balls = rules["main_balls"]
         
-        df = load_and_validate_data(game)
+        df = get_merged_data(game)
         if df is None:
-            raise ValueError(f"Data loading failed for game '{game}'.")
+            raise ValueError(f"Data loading and merging failed for game '{game}'.")
 
-        ball_columns = [col for col in df.columns if 'ball' in col and 'lucky' not in col and 'thunderball' not in col and 'life' not in col][:num_balls]
+        # Dynamically find the main ball columns
+        main_ball_cols = [col for col in df.columns if col.lower().startswith(('ball', 'n')) and 'lucky' not in col.lower() and 'star' not in col.lower() and 'thunderball' not in col.lower() and 'life' not in col.lower()]
+        
+        ball_columns = main_ball_cols[:num_balls]
+        
         if len(ball_columns) != num_balls:
-            raise ValueError(f"Expected {num_balls} main ball columns for {game}, but found {len(ball_columns)}.")
+            raise ValueError(f"Expected {num_balls} main ball columns for {game}, but found {len(ball_columns)}. Columns found: {df.columns.tolist()}")
+
+        # FIX: Drop rows with missing values in the essential ball columns to prevent NaNs
+        df.dropna(subset=ball_columns, inplace=True)
             
-        draws = df[ball_columns].values
+        draws = df[ball_columns].values.astype(float)
 
         scaler = MinMaxScaler(feature_range=(0, 1))
         scaled_draws = scaler.fit_transform(draws)
@@ -88,15 +93,13 @@ def build_lstm_model(input_shape, num_outputs):
     """
     Builds a dynamically sized LSTM model.
     """
-    # Re-apply seed to ensure model weights are initialized deterministically
     tf.random.set_seed(SEED)
-    
     model = Sequential([
         Input(shape=input_shape),
         LSTM(units=50, return_sequences=True),
         LSTM(units=50),
         Dense(units=25, activation='relu'),
-        Dense(units=num_outputs)  # Output layer size matches number of balls
+        Dense(units=num_outputs)
     ])
     model.compile(optimizer='adam', loss='mean_squared_error')
     logging.info(f"LSTM model built for {num_outputs} outputs.")
@@ -144,16 +147,15 @@ def _predict_and_finalize(model, scaler, all_scaled_draws, game: str):
     predicted_numbers = np.clip(np.round(predicted_unscaled.flatten()), 1, max_ball)
     
     final_numbers = set()
-    # Sort for deterministic selection, regardless of prediction order
+    # FIX: Add a check for NaN to prevent the script from crashing
     for num in sorted(predicted_numbers):
-        if len(final_numbers) < num_balls:
+        if not np.isnan(num) and len(final_numbers) < num_balls:
             final_numbers.add(int(num))
 
-    # Fill if not enough unique numbers were generated, also deterministically
+    # Fill if not enough unique numbers were generated
     if len(final_numbers) < num_balls:
         logging.warning(f"Prediction for {game} resulted in fewer than {num_balls} unique numbers. Filling gap.")
         all_possible = set(range(1, max_ball + 1))
-        # Ensure candidate list is sorted for deterministic filling
         missing_candidates = sorted(list(all_possible - final_numbers))
         fill_count = num_balls - len(final_numbers)
         final_numbers.update(missing_candidates[:fill_count])
@@ -165,76 +167,86 @@ def _predict_and_finalize(model, scaler, all_scaled_draws, game: str):
 def train_and_generate_ml_numbers(game: str, epochs: int = 50):
     """
     A full-cycle function that trains, saves, and generates numbers.
-    Used when a model for a game doesn't exist yet. This is a deterministic process.
+    This is a deterministic process and returns a dictionary.
     """
     logging.info(f"Starting deterministic training process for '{game}'...")
-    
-    # 1. Load and prep data
+
     X_train, y_train, all_scaled_draws, scaler = load_and_preprocess_data(game)
     if X_train is None:
         return None
 
-    # 2. Build model with correct dimensions
     rules = GAME_RULES[game]
     input_shape = (X_train.shape[1], X_train.shape[2])
     num_outputs = rules["main_balls"]
     model = build_lstm_model(input_shape, num_outputs)
 
-    # 3. Train model
     logging.info(f"Training model for {epochs} epochs. This may take a moment...")
-    model.fit(X_train, y_train, epochs=epochs, batch_size=32, verbose=0, shuffle=False) # shuffle=False is key
+    model.fit(X_train, y_train, epochs=epochs, batch_size=32, verbose=0, shuffle=False)
     logging.info("Training complete.")
 
-    # 4. Save the new model and scaler
     save_model_and_scaler(game, model, scaler)
 
-    # 5. Generate numbers using the newly trained model
     logging.info("Generating numbers from the new model...")
-    return _predict_and_finalize(model, scaler, all_scaled_draws, game)
+    main_numbers = _predict_and_finalize(model, scaler, all_scaled_draws, game)
+
+    # Ensure consistent dictionary output
+    return {"main": main_numbers, "special": []}
 
 
 def generate_ml_numbers(game: str):
     """
-    Loads an existing model for a game and generates numbers deterministically.
+    Loads an existing model and generates numbers deterministically using the merged dataset.
     """
-    # 1. Load model and scaler
     model, scaler = load_model_and_scaler(game)
     if model is None:
         logging.error(f"Could not load existing model for '{game}'. Cannot generate numbers.")
         return None
 
-    # 2. Load data just for prediction context
     try:
-        df = load_and_validate_data(game)
+        df = get_merged_data(game)
+        if df is None:
+            raise ValueError(f"Data loading and merging failed for game '{game}'.")
+            
         rules = GAME_RULES[game]
         num_balls = rules["main_balls"]
-        ball_columns = [col for col in df.columns if 'ball' in col and 'lucky' not in col and 'thunderball' not in col and 'life' not in col][:num_balls]
-        draws = df[ball_columns].values
-        # We MUST use the loaded scaler to transform the data
+        
+        main_ball_cols = [col for col in df.columns if col.lower().startswith(('ball', 'n')) and 'lucky' not in col.lower() and 'star' not in col.lower() and 'thunderball' not in col.lower() and 'life' not in col.lower()]
+        ball_columns = main_ball_cols[:num_balls]
+
+        if len(ball_columns) != num_balls:
+            raise ValueError(f"Expected {num_balls} main ball columns for {game}, but found {len(ball_columns)}.")
+
+        # FIX: Drop rows with missing values in the essential ball columns to prevent NaNs
+        df.dropna(subset=ball_columns, inplace=True)
+
+        draws = df[ball_columns].values.astype(float)
         all_scaled_draws = scaler.transform(draws)
     except Exception as e:
         logging.error(f"Failed to prepare data for prediction for '{game}': {e}")
         return None
     
-    # 3. Predict and finalize
-    return _predict_and_finalize(model, scaler, all_scaled_draws, game)
+    # ML model now needs to return a dict similar to the statistical one
+    main_numbers = _predict_and_finalize(model, scaler, all_scaled_draws, game)
+    
+    # For now, ML model only predicts main numbers. Special numbers are returned as an empty list.
+    return {"main": main_numbers, "special": []}
 
 if __name__ == '__main__':
-    # This block allows the script to be executed directly for training.
-    # It will train a model for each game defined in GAME_RULES.
-    logging.info("Starting model training for all supported games...")
+    parser = argparse.ArgumentParser(description="Machine Learning Lottery Number Generator")
+    parser.add_argument("--game", type=str, required=True, choices=GAME_RULES.keys(), help="The lottery game to model (e.g., 'lotto').")
+    parser.add_argument("--train", action='store_true', help="Flag to force retraining of the model.")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs for training.")
     
-    # Ensure the main models directory exists
-    os.makedirs(MODELS_DIR, exist_ok=True)
+    args = parser.parse_args()
     
-    for game_name in GAME_RULES.keys():
-        logging.info(f"--- Processing game: {game_name.upper()} ---")
-        try:
-            # We call the full-cycle function to ensure data is prepped,
-            # model is trained, and then saved.
-            train_and_generate_ml_numbers(game_name, epochs=50)
-            logging.info(f"Successfully processed and trained model for {game_name}.")
-        except Exception as e:
-            logging.error(f"An error occurred during the training process for {game_name}: {e}")
-    
-    logging.info("All model training processes complete.")
+    if args.train:
+        print(f"--- Training ML Model for {args.game.upper()} ---")
+        numbers = train_and_generate_ml_numbers(args.game, args.epochs)
+        if numbers:
+            print(f"Generated numbers after training: {numbers}")
+    else:
+        print(f"--- Generating Numbers using existing ML Model for {args.game.upper()} ---")
+        # Need to return dict with main and special numbers
+        result = generate_ml_numbers(args.game)
+        if result:
+            print(f"Main Numbers: {result['main']}")

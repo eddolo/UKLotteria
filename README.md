@@ -20,7 +20,9 @@ This project is an AI-driven application for generating UK National Lottery numb
 ├── lotto.py                # The Command-Line Interface (CLI) entry point
 ├── models/
 │   └── lstm_model.h5       # The trained Machine Learning model
+├── plan.yaml               # The project plan executed by the AI
 ├── README.md               # This README file
+├── reports/                # For generated project reports
 ├── requirements.txt        # Project dependencies (to be generated)
 └── src/
     ├── __init__.py
@@ -95,5 +97,4 @@ The web app provides a rich, interactive experience.
     *   Use the **"Update Lottery Data"** button in the sidebar to fetch the latest results.
     *   Select either the **"Statistical"** or **"Machine Learning"** method.
     *   Click **"Generate Numbers"** to see the results.
-
     *   View the historical number frequency chart to gain insights into the data.
